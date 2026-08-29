@@ -22,7 +22,6 @@ def build_node_response(node, document, blocks, children=None) -> dict:
         "document_id": str(document.id),
         "title": document.title,
         "description": document.description,
-        "document_type": document.document_type,
         "parent_node_id": node.parent_node_id,
         "blocks": [serialize_block(block) for block in blocks],
         "children": children or []

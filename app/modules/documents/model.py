@@ -12,7 +12,6 @@ class Document(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    document_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Reserved for future full-text indexing sourced from content block text - not populated yet
     search_text: Mapped[str] = mapped_column(TSVECTOR, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

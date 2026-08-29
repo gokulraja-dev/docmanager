@@ -13,7 +13,7 @@ async def create_document_usecase(db: AsyncSession, payload: CreateDocumentReque
     PATH = None
 
     # Step 1: Create a new document
-    document = await create_document(db, payload.title, payload.description, payload.document_type)
+    document = await create_document(db, payload.title, payload.description)
 
     # Step 2: Document tree logic
     node_id = generate_ulid()
@@ -89,7 +89,7 @@ async def update_document_usecase(db: AsyncSession, node_id: str, payload: Updat
     node, document = row
 
     # Step 2: Update the document
-    await update_document(db, document, title=payload.title, description=payload.description, document_type=payload.document_type)
+    await update_document(db, document, title=payload.title, description=payload.description)
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={"msg": "Document updated successfully", "node_id": node.node_id})
 
