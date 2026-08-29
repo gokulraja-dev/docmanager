@@ -31,8 +31,14 @@ class DocumentNode(Base):
     parent_node_id: Mapped[str | None] = mapped_column(String(26), nullable=True)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set to a fresh id on every subtree soft-delete (only for nodes not already deleted),
+    # cleared on restore. Lets restore act on "everything deleted together in one operation"
+    # without disturbing descendants that were independently deleted earlier or later.
+    deletion_batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+Index("idx_document_nodes_deletion_batch", DocumentNode.deletion_batch_id)
 
 # DocumentContentBlock model representing one dynamic content unit within a document.
 # block_type/data are intentionally free-form so new block types never require a schema change.

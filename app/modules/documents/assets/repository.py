@@ -36,6 +36,16 @@ async def get_assets_by_document(db: AsyncSession, document_id: str):
     result = await db.execute(stmt)
     return result.scalars().all()
 
+# Method to get all assets across several documents at once (used by permanent delete
+# to gather storage_keys before the owning documents/assets rows are removed)
+async def get_assets_by_document_ids(db: AsyncSession, document_ids: list):
+    if not document_ids:
+        return []
+
+    stmt = select(DocumentAsset).where(DocumentAsset.document_id.in_(document_ids))
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
 # Method to get a specific set of assets belonging to a document (used for reference validation)
 async def get_assets_by_ids(db: AsyncSession, document_id: str, asset_ids: list[str]):
     if not asset_ids:

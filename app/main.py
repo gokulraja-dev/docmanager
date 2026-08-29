@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.db.session import init_db
 from app.api import api_router
@@ -21,6 +22,15 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         redirect_slashes=False
+    )
+
+    # CORS - local dev only, no auth exists yet so a permissive policy is fine
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # Central API registry
