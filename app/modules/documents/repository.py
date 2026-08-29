@@ -3,12 +3,17 @@ from sqlalchemy import select, update, func
 from .model import Document, DocumentNode
 
 # Method to create a new document
-async def create_document(db: AsyncSession, title: str, content):
-    document = Document(title=title, content=content)
+async def create_document(db: AsyncSession, title: str, description: str | None = None, document_type: str | None = None):
+    document = Document(title=title, description=description, document_type=document_type)
     db.add(document)
     await db.commit()
     await db.refresh(document)
     return document
+
+# Method to get a document by id
+async def get_document_by_id(db: AsyncSession, document_id: str):
+    stmt = select(Document).where(Document.id == document_id, Document.deleted_at.is_(None))
+    return await db.scalar(stmt)
 
 # Method to get node by id
 async def get_node_by_id(db: AsyncSession, node_id: str):
@@ -79,11 +84,13 @@ async def get_node(db, node_id: str):
     return await db.scalar(stmt)
 
 # Method to update document
-async def update_document(db: AsyncSession, document, title: str, content: str):
+async def update_document(db: AsyncSession, document, title: str | None = None, description: str | None = None, document_type: str | None = None):
     if title is not None:
         document.title = title
-    if content is not None:
-        document.content = content
+    if description is not None:
+        document.description = description
+    if document_type is not None:
+        document.document_type = document_type
     await db.commit()
     await db.refresh(document)
     return document

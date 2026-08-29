@@ -3,8 +3,9 @@ from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 from .repository import get_node_by_id, create_document, create_node_record, get_node_with_document, get_subtree_nodes, get_immediate_children, soft_delete_node_record, get_node, update_document
-from .utilis import generate_ulid, build_tree_response
+from .utilis import generate_ulid, build_tree_response, build_node_response
 from .schemas import CreateDocumentRequest, UpdateDocumentRequest
+from .content_blocks.repository import get_blocks_by_document_ids
 
 # Method to create a new document
 async def create_document_usecase(db: AsyncSession, payload: CreateDocumentRequest):
@@ -12,7 +13,7 @@ async def create_document_usecase(db: AsyncSession, payload: CreateDocumentReque
     PATH = None
 
     # Step 1: Create a new document
-    document = await create_document(db, payload.title, payload.content)
+    document = await create_document(db, payload.title, payload.description, payload.document_type)
 
     # Step 2: Document tree logic
     node_id = generate_ulid()
@@ -50,44 +51,35 @@ async def get_document_usecase(db, node_id: str, depth: str):
 
     node, document = row
 
-    base_response = {
-        "node_id": node.node_id,
-        "title": document.title,
-        "content": document.content,
-        "parent_node_id": node.parent_node_id,
-        "children": []
-    }
-
     # depth = 0 → only this node
     if depth == "0":
-        return base_response
+        blocks_map = await get_blocks_by_document_ids(db, [document.id])
+        return build_node_response(node, document, blocks_map.get(document.id, []))
 
     # depth = 1 → only immediate children
     if depth == "1":
-        children = await get_immediate_children(db, node.node_id)
+        children_rows = await get_immediate_children(db, node.node_id)
+        document_ids = [document.id] + [child_document.id for _, child_document in children_rows]
+        blocks_map = await get_blocks_by_document_ids(db, document_ids)
 
-        base_response["children"] = [
-            {
-                "node_id": child.node_id,
-                "title": doc.title,
-                "content": doc.content,
-                "parent_node_id": child.parent_node_id,
-                "children": []
-            }
-            for child, doc in children
+        children = [
+            build_node_response(child_node, child_document, blocks_map.get(child_document.id, []))
+            for child_node, child_document in children_rows
         ]
-        return base_response
+        return build_node_response(node, document, blocks_map.get(document.id, []), children=children)
 
     # depth = all → full subtree
     if depth == "all":
         rows = await get_subtree_nodes(db, node.path)
-        return build_tree_response(rows)
+        document_ids = [row_document.id for _, row_document in rows]
+        blocks_map = await get_blocks_by_document_ids(db, document_ids)
+        return build_tree_response(rows, blocks_map)
 
     raise HTTPException(400, "Invalid depth parameter")
 
 
 # Mehtod to update a document
-async def update_document_usecase(db: AsyncSession, node_id: str, payload: CreateDocumentRequest):
+async def update_document_usecase(db: AsyncSession, node_id: str, payload: UpdateDocumentRequest):
     # Step 1: Check if the document exists
     row = await get_node_with_document(db, node_id)
 
@@ -97,7 +89,7 @@ async def update_document_usecase(db: AsyncSession, node_id: str, payload: Creat
     node, document = row
 
     # Step 2: Update the document
-    await update_document(db, document, payload.title, payload.content)
+    await update_document(db, document, title=payload.title, description=payload.description, document_type=payload.document_type)
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={"msg": "Document updated successfully", "node_id": node.node_id})
 

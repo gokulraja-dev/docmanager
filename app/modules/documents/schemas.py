@@ -1,11 +1,12 @@
 from pydantic import BaseModel
-from typing import Any, Optional
+from typing import Optional
 from enum import Enum
 
 # Schema model for create document request
 class CreateDocumentRequest(BaseModel):
     title: str
-    content: Any
+    description: Optional[str] = None
+    document_type: Optional[str] = None
     parent_node_id: Optional[str] = None
 
 # Enumuration for document depth levels
@@ -17,4 +18,5 @@ class DocumentDepthLevel(str, Enum):
 # Schema model for update document request
 class UpdateDocumentRequest(BaseModel):
     title: str | None = None
-    content: Any | None = None
+    description: str | None = None
+    document_type: str | None = None
