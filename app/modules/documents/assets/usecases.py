@@ -2,7 +2,7 @@ import hashlib
 import json
 import uuid
 from fastapi import HTTPException, status, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.storage import get_storage_backend
@@ -11,6 +11,8 @@ from app.modules.documents.content_blocks.repository import get_blocks_by_docume
 from .repository import create_asset, get_asset, get_assets_by_document, delete_asset_record
 
 
+# storage_key is an internal storage-implementation detail and is intentionally
+# not exposed here - clients retrieve content via content_url instead.
 def _serialize(asset) -> dict:
     return {
         "id": str(asset.id),
@@ -18,12 +20,17 @@ def _serialize(asset) -> dict:
         "file_name": asset.file_name,
         "mime_type": asset.mime_type,
         "file_size": asset.file_size,
-        "storage_key": asset.storage_key,
         "checksum": asset.checksum,
         "metadata": asset.meta,
+        "content_url": f"/api/documents/{asset.document_id}/assets/{asset.id}/content",
         "created_at": asset.created_at,
         "updated_at": asset.updated_at,
     }
+
+# Strips characters that could break the Content-Disposition header value
+def _safe_content_disposition(file_name: str) -> str:
+    safe_name = file_name.replace("\r", "").replace("\n", "").replace('"', "'")
+    return f'inline; filename="{safe_name}"'
 
 # Checks whether a content block's data references this asset (see content_blocks convention)
 def _asset_referenced_in_block_data(data, asset_id: str) -> bool:
@@ -116,3 +123,23 @@ async def delete_asset_usecase(db: AsyncSession, document_id: str, asset_id: str
         pass
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={"msg": "Asset deleted successfully"})
+
+# Method to stream an asset's actual file content back to the client
+async def download_asset_usecase(db: AsyncSession, document_id: str, asset_id: str):
+    # Scoping the lookup by both asset_id and document_id means an asset_id
+    # that belongs to a different document resolves to "not found" here, not a leak.
+    asset = await get_asset(db, document_id, asset_id)
+    if not asset:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+
+    storage = get_storage_backend()
+    try:
+        stream = await storage.read_stream(asset.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset file is missing from storage")
+
+    headers = {
+        "Content-Disposition": _safe_content_disposition(asset.file_name),
+        "Content-Length": str(asset.file_size),
+    }
+    return StreamingResponse(stream, media_type=asset.mime_type, headers=headers)

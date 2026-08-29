@@ -6,13 +6,39 @@ _monotonic_factory = ulid.monotonic
 def generate_ulid() -> str:
     return str(_monotonic_factory.new())
 
+def _asset_content_url(document_id, asset_id: str) -> str:
+    return f"/api/documents/{document_id}/assets/{asset_id}/content"
+
+# A block's `data` may reference assets via "asset_id"/"asset_ids" (see content_blocks
+# usecases). This adds a retrievable "url"/"urls" alongside them generically, for any
+# block type, without mutating the stored data.
+def _with_asset_urls(document_id, data: dict) -> dict:
+    if not isinstance(data, dict):
+        return data
+
+    enriched = dict(data)
+
+    asset_id = enriched.get("asset_id")
+    if isinstance(asset_id, str):
+        enriched["url"] = _asset_content_url(document_id, asset_id)
+
+    asset_ids = enriched.get("asset_ids")
+    if isinstance(asset_ids, list):
+        enriched["urls"] = [
+            _asset_content_url(document_id, asset_id)
+            for asset_id in asset_ids
+            if isinstance(asset_id, str)
+        ]
+
+    return enriched
+
 # Utility to serialize a content block for API responses
 def serialize_block(block) -> dict:
     return {
         "id": str(block.id),
         "type": block.block_type,
         "position": block.position,
-        "data": block.data,
+        "data": _with_asset_urls(block.document_id, block.data),
     }
 
 # Utility to build a single node's response, optionally with pre-fetched children
