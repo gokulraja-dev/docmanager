@@ -10,6 +10,10 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Owning account, sourced from the IAM token's `sub` claim - never client-supplied.
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    # Reserved for a later organization-scoping phase. Always NULL for now; unused otherwise.
+    org_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Reserved for future full-text indexing sourced from content block text - not populated yet
@@ -20,6 +24,7 @@ class Document(Base):
 
 # Search Index
 Index("idx_documents_search", Document.search_text, postgresql_using="gin")
+Index("idx_documents_account", Document.account_id)
 
 # DocumentNode model representing hierarchical structure of document nodes.
 # Responsible only for tree position (parent/child, materialized path) - no content/asset concerns.

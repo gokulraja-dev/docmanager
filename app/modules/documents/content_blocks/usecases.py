@@ -49,11 +49,18 @@ async def _validate_asset_references(db: AsyncSession, document_id: str, data: d
             detail=f"Referenced asset(s) not found on this document: {', '.join(missing)}",
         )
 
-# Method to create a new content block
-async def create_content_block_usecase(db: AsyncSession, document_id: str, payload: CreateContentBlockRequest):
-    document = await get_document_by_id(db, document_id)
+# Ownership flows through document_id -> Document.account_id (never a separate
+# account_id on the block itself). A document belonging to another account - or that
+# doesn't exist - resolves to "not found" here, never leaking existence.
+async def _require_owned_document(db: AsyncSession, document_id: str, account_id):
+    document = await get_document_by_id(db, document_id, account_id)
     if not document:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    return document
+
+# Method to create a new content block
+async def create_content_block_usecase(db: AsyncSession, account_id, document_id: str, payload: CreateContentBlockRequest):
+    await _require_owned_document(db, document_id, account_id)
 
     await _validate_asset_references(db, document_id, payload.data)
 
@@ -65,16 +72,16 @@ async def create_content_block_usecase(db: AsyncSession, document_id: str, paylo
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=jsonable_encoder(serialize_block(block)))
 
 # Method to list all content blocks of a document
-async def get_content_blocks_usecase(db: AsyncSession, document_id: str):
-    document = await get_document_by_id(db, document_id)
-    if not document:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+async def get_content_blocks_usecase(db: AsyncSession, account_id, document_id: str):
+    await _require_owned_document(db, document_id, account_id)
 
     blocks = await get_blocks_by_document(db, document_id)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"blocks": jsonable_encoder([serialize_block(b) for b in blocks])})
 
 # Method to get a single content block
-async def get_content_block_usecase(db: AsyncSession, document_id: str, block_id: str):
+async def get_content_block_usecase(db: AsyncSession, account_id, document_id: str, block_id: str):
+    await _require_owned_document(db, document_id, account_id)
+
     block = await get_block(db, document_id, block_id)
     if not block:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Content block not found")
@@ -82,7 +89,9 @@ async def get_content_block_usecase(db: AsyncSession, document_id: str, block_id
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(serialize_block(block)))
 
 # Method to update a content block
-async def update_content_block_usecase(db: AsyncSession, document_id: str, block_id: str, payload: UpdateContentBlockRequest):
+async def update_content_block_usecase(db: AsyncSession, account_id, document_id: str, block_id: str, payload: UpdateContentBlockRequest):
+    await _require_owned_document(db, document_id, account_id)
+
     block = await get_block(db, document_id, block_id)
     if not block:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Content block not found")
@@ -94,7 +103,9 @@ async def update_content_block_usecase(db: AsyncSession, document_id: str, block
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(serialize_block(block)))
 
 # Method to delete a content block
-async def delete_content_block_usecase(db: AsyncSession, document_id: str, block_id: str):
+async def delete_content_block_usecase(db: AsyncSession, account_id, document_id: str, block_id: str):
+    await _require_owned_document(db, document_id, account_id)
+
     block = await get_block(db, document_id, block_id)
     if not block:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Content block not found")
@@ -103,10 +114,8 @@ async def delete_content_block_usecase(db: AsyncSession, document_id: str, block
     return JSONResponse(status_code=status.HTTP_200_OK, content={"msg": "Content block deleted successfully"})
 
 # Method to reorder all content blocks of a document in one call
-async def reorder_content_blocks_usecase(db: AsyncSession, document_id: str, payload: ReorderContentBlocksRequest):
-    document = await get_document_by_id(db, document_id)
-    if not document:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+async def reorder_content_blocks_usecase(db: AsyncSession, account_id, document_id: str, payload: ReorderContentBlocksRequest):
+    await _require_owned_document(db, document_id, account_id)
 
     existing_blocks = await get_blocks_by_document(db, document_id)
     existing_ids = {str(b.id) for b in existing_blocks}

@@ -43,11 +43,18 @@ def _asset_referenced_in_block_data(data, asset_id: str) -> bool:
         return True
     return False
 
-# Method to upload a new asset for a document
-async def upload_asset_usecase(db: AsyncSession, document_id: str, file: UploadFile, metadata_raw: str | None):
-    document = await get_document_by_id(db, document_id)
+# Ownership flows through document_id -> Document.account_id (never a separate
+# account_id on the asset itself). A document belonging to another account - or that
+# doesn't exist - resolves to "not found" here, never leaking existence.
+async def _require_owned_document(db: AsyncSession, document_id: str, account_id):
+    document = await get_document_by_id(db, document_id, account_id)
     if not document:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    return document
+
+# Method to upload a new asset for a document
+async def upload_asset_usecase(db: AsyncSession, account_id, document_id: str, file: UploadFile, metadata_raw: str | None):
+    await _require_owned_document(db, document_id, account_id)
 
     try:
         meta = json.loads(metadata_raw) if metadata_raw else {}
@@ -83,16 +90,16 @@ async def upload_asset_usecase(db: AsyncSession, document_id: str, file: UploadF
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=jsonable_encoder(_serialize(asset)))
 
 # Method to list all assets of a document
-async def list_document_assets_usecase(db: AsyncSession, document_id: str):
-    document = await get_document_by_id(db, document_id)
-    if not document:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+async def list_document_assets_usecase(db: AsyncSession, account_id, document_id: str):
+    await _require_owned_document(db, document_id, account_id)
 
     assets = await get_assets_by_document(db, document_id)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"assets": jsonable_encoder([_serialize(a) for a in assets])})
 
 # Method to get a single asset
-async def get_asset_usecase(db: AsyncSession, document_id: str, asset_id: str):
+async def get_asset_usecase(db: AsyncSession, account_id, document_id: str, asset_id: str):
+    await _require_owned_document(db, document_id, account_id)
+
     asset = await get_asset(db, document_id, asset_id)
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
@@ -100,7 +107,9 @@ async def get_asset_usecase(db: AsyncSession, document_id: str, asset_id: str):
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(_serialize(asset)))
 
 # Method to delete an asset, refusing if a content block still references it
-async def delete_asset_usecase(db: AsyncSession, document_id: str, asset_id: str):
+async def delete_asset_usecase(db: AsyncSession, account_id, document_id: str, asset_id: str):
+    await _require_owned_document(db, document_id, account_id)
+
     asset = await get_asset(db, document_id, asset_id)
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
@@ -125,7 +134,9 @@ async def delete_asset_usecase(db: AsyncSession, document_id: str, asset_id: str
     return JSONResponse(status_code=status.HTTP_200_OK, content={"msg": "Asset deleted successfully"})
 
 # Method to stream an asset's actual file content back to the client
-async def download_asset_usecase(db: AsyncSession, document_id: str, asset_id: str):
+async def download_asset_usecase(db: AsyncSession, account_id, document_id: str, asset_id: str):
+    await _require_owned_document(db, document_id, account_id)
+
     # Scoping the lookup by both asset_id and document_id means an asset_id
     # that belongs to a different document resolves to "not found" here, not a leak.
     asset = await get_asset(db, document_id, asset_id)
